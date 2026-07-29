@@ -197,3 +197,33 @@ Runtime method discovery: avoided
 The JSON contents can remain completely unknown until runtime. StaticJSON only
 ensures that every method needed to process those contents is already visible
 to JuliaC when the binary is built.
+
+## Serialization Flow
+
+```text
+Julia value
+  -> validate its complete static type graph
+  -> select or generate a concrete writer
+  -> append JSON bytes to a concrete buffer
+  -> return a String
+```
+
+Primitive values use direct writer methods. Composite values use the same
+compile-time schema expansion strategy as typed parsing. Vectors and tuples
+become arrays; string-keyed dictionaries, structs, and named tuples become
+objects. Struct and named-tuple fields are emitted in declaration order, while
+dictionaries preserve their iteration order.
+
+`missing` has no JSON token. Object members whose value is `missing` are omitted,
+while `missing` at the root or inside an array is rejected. `nothing` is always
+written as `null`.
+
+The writer stores indentation as a concrete integer. `-1` is the internal
+compact-output marker, while public nonnegative `indent` values enable line
+breaks and spaces. String escaping and UTF-8 validation write directly to the
+output byte buffer.
+
+As with typed parsing, acyclic schemas are embedded transitively and genuinely
+recursive structs stop at an ordinary recursive method edge. Consequently,
+runtime values can vary without requiring runtime method discovery in a JuliaC
+binary.

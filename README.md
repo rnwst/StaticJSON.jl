@@ -4,11 +4,12 @@
 trimmed with JuliaC. It can either preserve an arbitrary JSON document in a
 closed `JSONValue` tree or decode directly into a statically known Julia type.
 
-The package exports `JSONValue`, `parse`, and `unwrap`. Its `parse` function is
-separate from `Base.parse`, so explicit imports avoid Julia's name conflict:
+The package exports `JSONValue`, `json`, `parse`, and `unwrap`. Its `parse`
+function is separate from `Base.parse`, so explicit imports avoid Julia's name
+conflict:
 
 ```julia
-using StaticJSON: JSONValue, parse, unwrap
+using StaticJSON: JSONValue, json, parse, unwrap
 ```
 
 The first argument is always JSON text. It is never interpreted as a path. To
@@ -17,6 +18,76 @@ parse a file, read it explicitly:
 ```julia
 document = parse(read("config.json", String))
 ```
+
+## Serialization
+
+`json(value)` serializes a supported Julia value to a compact JSON string:
+
+```julia
+text = json((name = "example", values = [1, 2], enabled = true))
+# {"name":"example","values":[1,2],"enabled":true}
+```
+
+Serialization follows the same static type grammar as typed parsing:
+
+| Julia value | JSON representation |
+|---|---|
+| `nothing` | `null` |
+| `Bool` | Boolean |
+| Fixed-width integer or finite IEEE float | Number |
+| `String` | String |
+| `Vector`, concrete `AbstractVector`, fixed tuple | Array |
+| `Dict{String,T}` | Object in dictionary iteration order |
+| Concrete struct or `NamedTuple` | Object in field declaration order |
+| `JSONValue` | Its recursively wrapped JSON value |
+
+`missing` represents an absent object member. Struct and `NamedTuple` fields,
+and dictionary entries, whose value is `missing` are omitted:
+
+```julia
+value = (
+    required = 1,
+    optional = missing,
+    nullable = nothing,
+)
+
+json(value) # {"required":1,"nullable":null}
+```
+
+A top-level `missing` or `missing` inside an array or tuple is an error because
+JSON has no corresponding value.
+
+### Pretty Printing
+
+Pass a nonnegative integer as `indent` to enable structural line breaks and
+that many spaces per nesting level:
+
+```julia
+json((name = "example", values = [1, 2]); indent = 2)
+```
+
+produces:
+
+```json
+{
+  "name": "example",
+  "values": [
+    1,
+    2
+  ]
+}
+```
+
+The default `indent=nothing` produces no structural line breaks. `indent=0`
+uses line breaks without leading spaces. Empty arrays and objects remain `[]`
+and `{}` in pretty output.
+
+Serialization rejects non-finite floats, invalid UTF-8, general unions,
+multidimensional arrays, unsupported dictionary key types, abstract fields,
+`BigInt`, and `BigFloat`. Unsupported values raise the unexported
+`StaticJSON.SerializationError`; errors raised while accessing a custom vector
+representation propagate unchanged. Input data must be acyclic; ordinary
+recursive types work when their values terminate.
 
 ## Untyped JSON
 
@@ -252,6 +323,10 @@ The runtime parser does not use `Any`, `eval`, `invokelatest`, runtime type
 construction, or runtime field reflection. Struct, tuple, and `NamedTuple`
 decoders are generated for concrete target types, leaving direct field parsing
 and constructor calls in compiled code.
+
+Serialization follows the same approach. A concrete byte writer handles JSON
+syntax and indentation, while generated writers embed acyclic struct,
+collection, tuple, and sentinel-union schemas into a finite static call graph.
 
 Generated decoders embed acyclic composite schemas transitively. This avoids
 Julia's recursive inference limiter dropping deeply nested vector/struct edges

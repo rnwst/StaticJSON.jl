@@ -1,4 +1,4 @@
-using StaticJSON: JSONValue, ParseError, parse, unwrap
+using StaticJSON: JSONValue, ParseError, SerializationError, json, parse, unwrap
 
 struct TrimConfig{T}
     name::String
@@ -72,6 +72,20 @@ parse_deep_config(json::String)::DeepTrimConfig{Float32} =
 
 Base.Experimental.entrypoint(parse_deep_config, (String,))
 
+"""
+    normalize_deep_config(json_text, indentation)
+
+Parse and reserialize a runtime deep schema, then parse the generated JSON back
+to its concrete type. This retains compact and pretty serializer paths.
+"""
+function normalize_deep_config(json_text::String, indentation::Int)::DeepTrimConfig{Float32}
+    value = parse_deep_config(json_text)
+    encoded = json(value; indent = indentation)
+    return parse(encoded, DeepTrimConfig{Float32})
+end
+
+Base.Experimental.entrypoint(normalize_deep_config, (String, Int))
+
 struct RecursiveTrimNode
     value::Int
     children::Vector{RecursiveTrimNode}
@@ -89,6 +103,26 @@ parse_recursive_node(json::String)::RecursiveTrimNode =
     parse(json, RecursiveTrimNode)
 
 Base.Experimental.entrypoint(parse_recursive_node, (String,))
+
+"""
+    normalize_recursive_node(json_text)
+
+Exercise generated serialization at a genuine recursive schema edge.
+"""
+function normalize_recursive_node(json_text::String)::String
+    return json(parse_recursive_node(json_text))
+end
+
+Base.Experimental.entrypoint(normalize_recursive_node, (String,))
+
+"""
+    normalize_untyped(json_text)
+
+Exercise every closed `JSONValue` serialization branch from runtime JSON text.
+"""
+normalize_untyped(json_text::String)::String = json(parse(json_text))
+
+Base.Experimental.entrypoint(normalize_untyped, (String,))
 
 """
     json_score(value)
@@ -172,14 +206,31 @@ function @main(args)::Cint
     deep = parse_deep_config(deep_text)
     deep.tables[1].scale == 3.0f0 || return Cint(10)
     deep.groups[1].paths[1].points[1].position[2] == 6.0f0 || return Cint(11)
+    compact_deep = json(deep)
+    occursin('\n', compact_deep) && return Cint(12)
+    parse(compact_deep, DeepTrimConfig{Float32}).tables[1].offset == 4.0f0 ||
+        return Cint(13)
+    pretty_deep = json(deep; indent = 2)
+    occursin('\n', pretty_deep) || return Cint(14)
+    parse(pretty_deep, DeepTrimConfig{Float32}).groups[1].name == "g" ||
+        return Cint(15)
+    occursin("\"items\"", normalize_untyped(text)) || return Cint(16)
 
     rejected = false
     try
         parse("{\"name\":\"incomplete\"}", TrimConfig{Float32})
     catch error
-        error isa ParseError || return Cint(12)
+        error isa ParseError || return Cint(17)
         rejected = true
     end
-    rejected || return Cint(13)
+    rejected || return Cint(18)
+    rejected_float = false
+    try
+        json(Inf)
+    catch error
+        error isa SerializationError || return Cint(19)
+        rejected_float = true
+    end
+    rejected_float || return Cint(20)
     return Cint(0)
 end

@@ -1,12 +1,13 @@
 """
-`StaticJSON` parses JSON through a closed value representation or directly into
-statically known Julia types, allowing JuliaC to trim all unreachable code.
+`StaticJSON` parses and serializes JSON through closed representations and
+statically generated schemas, allowing JuliaC to trim all unreachable code.
 """
 module StaticJSON
 
-export JSONValue, parse, unwrap
+export JSONValue, json, parse, unwrap
 
 include("parser.jl")
 include("typed.jl")
+include("serializer.jl")
 
 end
