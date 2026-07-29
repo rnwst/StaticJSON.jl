@@ -1,97 +1,173 @@
 # StaticJSON.jl
 
-`StaticJSON.jl` is a strict JSON parser designed for applications compiled and
-trimmed with JuliaC. It can either preserve an arbitrary JSON document in a
-closed `JSONValue` tree or decode directly into a statically known Julia type.
+`StaticJSON.jl` is a strict JSON parser and serializer for applications compiled and safely trimmed with JuliaC. It can decode directly into a statically known Julia type or preserve arbitrary JSON in a closed `JSONValue` tree, without introducing `Any` into the parsed representation.
 
-The package exports `JSONValue`, `json`, `parse`, and `unwrap`. Its `parse`
-function is separate from `Base.parse`, so explicit imports avoid Julia's name
-conflict:
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [API Overview](#api-overview)
+- [Parsing](#parsing)
+- [Serialization](#serialization)
+- [Limitations](#limitations)
+- [JuliaC Compatibility](#juliac-compatibility)
+- [Development](#development)
+
+## Installation
+
+StaticJSON currently requires Julia 1.12 and can be installed directly from its repository:
 
 ```julia
-using StaticJSON: JSONValue, json, parse, unwrap
+import Pkg
+Pkg.add(url = "https://github.com/rnwst/StaticJSON.jl")
 ```
 
-The first argument is always JSON text. It is never interpreted as a path. To
-parse a file, read it explicitly:
+## Quick Start
 
+Import `parse` explicitly because it is separate from `Base.parse`:
+```julia
+using StaticJSON: JSONValue, json, parse, unwrap
+
+Target = @NamedTuple{host::String, port::Int}
+config = parse("""{"port":8080,"host":"localhost"}""", Target)
+
+json(config)  # {"host":"localhost","port":8080}
+```
+
+Omit the target type to retain an arbitrary document as `JSONValue`:
+```julia
+document = parse("""{"host":"localhost","port":8080}""")
+object = unwrap(document)      # Dict{String,JSONValue}
+host = unwrap(object["host"])  # "localhost"
+```
+
+The first argument to `parse` is always JSON text, never a path. Read files explicitly:
 ```julia
 document = parse(read("config.json", String))
 ```
 
-## Serialization
+## API Overview
 
-`json(value)` serializes a supported Julia value to a compact JSON string:
+| Call                          | Result                                             |
+|-------------------------------|----------------------------------------------------|
+| `parse(text)`                 | Parse arbitrary JSON as `JSONValue`                |
+| `parse(text, T)`              | Decode directly into the supported target type `T` |
+| `json(value; indent=nothing)` | Serialize a supported value to `String`            |
+| `unwrap(value)`               | Remove one `JSONValue` wrapper layer               |
 
-```julia
-text = json((name = "example", values = [1, 2], enabled = true))
-# {"name":"example","values":[1,2],"enabled":true}
-```
+The package exports `JSONValue`, `json`, `parse`, and `unwrap`.
 
-Serialization follows the same static type grammar as typed parsing:
 
-| Julia value | JSON representation |
-|---|---|
-| `nothing` | `null` |
-| `Bool` | Boolean |
-| Fixed-width integer or finite IEEE float | Number |
-| `String` | String |
-| `Vector`, concrete `AbstractVector`, fixed tuple | Array |
-| `Dict{String,T}` | Object in dictionary iteration order |
-| Concrete struct or `NamedTuple` | Object in field declaration order |
-| `JSONValue` | Its recursively wrapped JSON value |
+## Parsing
 
-`missing` represents an absent object member. Struct and `NamedTuple` fields,
-and dictionary entries, whose value is `missing` are omitted:
+### Typed Parsing
+
+Pass a target type as the second argument to decode directly into that type:
 
 ```julia
-value = (
-    required = 1,
-    optional = missing,
-    nullable = nothing,
-)
+struct Server
+    host::String
+    port::Int
+    aliases::Vector{String}
+    note::Union{Nothing,String}
+    retries::Union{Missing,Int}
+end
 
-json(value) # {"required":1,"nullable":null}
-```
-
-A top-level `missing` or `missing` inside an array or tuple is an error because
-JSON has no corresponding value.
-
-### Pretty Printing
-
-Pass a nonnegative integer as `indent` to enable structural line breaks and
-that many spaces per nesting level:
-
-```julia
-json((name = "example", values = [1, 2]); indent = 2)
-```
-
-produces:
-
-```json
+server = parse("""
 {
-  "name": "example",
-  "values": [
-    1,
-    2
-  ]
+  "port": 443,
+  "aliases": ["api"],
+  "note": null,
+  "host": "example.test"
 }
+""", Server)
 ```
 
-The default `indent=nothing` produces no structural line breaks. `indent=0`
-uses line breaks without leading spaces. Empty arrays and objects remain `[]`
-and `{}` in pretty output.
+The typed parser does not construct an intermediate `JSONValue` tree.
 
-Serialization rejects non-finite floats, invalid UTF-8, general unions,
-multidimensional arrays, unsupported dictionary key types, abstract fields,
-`BigInt`, and `BigFloat`. Unsupported values raise the unexported
-`StaticJSON.SerializationError`; errors raised while accessing a custom vector
-representation propagate unchanged. Input data must be acyclic; ordinary
-recursive types work when their values terminate.
+| Target                                 | Required JSON representation                |
+|----------------------------------------|---------------------------------------------|
+| `JSONValue`                            | Any JSON value                              |
+| `Nothing`                              | `null`                                      |
+| `Bool`                                 | Boolean                                     |
+| `String`                               | String                                      |
+| Fixed-width signed or unsigned integer | Exactly integral number                     |
+| `Float16`, `Float32`, `Float64`        | Number                                      |
+| `Vector{T}`                            | Arbitrary-length array                      |
+| Concrete `AbstractVector{T}`           | Array parsed as `Vector{T}`, then converted |
+| Fixed `Tuple` or `NTuple`              | Array with the declared length              |
+| `Dict{String,T}`                       | Object with values decoded as `T`           |
+| Concrete `NamedTuple`                  | Object matching its names and types         |
+| Concrete struct                        | Object matching its fields and field types  |
 
-## Untyped JSON
+Supported integer targets are `Int8` through `Int128`, `UInt8` through
+`UInt128`, `Int`, and `UInt`.
 
-`parse(json)` always returns a `JSONValue`:
+### Object Fields, Missing, and Null
+
+Struct and `NamedTuple` keys can appear in any order. Names must exactly match Julia field names. Unknown keys, duplicate keys, and missing required keys throw `StaticJSON.ParseError`.
+
+Structs are constructed through their positional constructor in field order:
+```julia
+Target(field1, field2, ...)
+```
+
+Keyword defaults are not consulted. A custom inner constructor may validate the completed values, but it must provide the matching positional constructor.
+
+`Nothing` represents an explicit JSON `null`; `Missing` represents an absent object field:
+
+| Field type                 | Key absent | Explicit `null` | Ordinary value |
+|----------------------------|------------|-----------------|----------------|
+| `Union{Nothing,T}`         | Error      | `nothing`       | Decoded as `T` |
+| `Union{Missing,T}`         | `missing`  | Error           | Decoded as `T` |
+| `Union{Missing,Nothing,T}` | `missing`  | `nothing`       | Decoded as `T` |
+
+`Missing` is not a JSON token and cannot be produced for an array element or a top-level value.
+
+### Collections
+
+Concrete `AbstractVector` targets use Julia's standard conversion protocol. StaticJSON parses an array as `Vector{eltype(T)}` and calls `convert(T, values)`. This supports fixed-size representations such as GeometryBasics vectors without introducing a package dependency:
+
+```julia
+using GeometryBasics: Vec
+
+position = parse("[1, 2, 3]", Vec{3,Float32})
+```
+
+The conversion also works in nested fields. Conversion errors, including fixed-length mismatches, propagate unchanged. The target must be concrete and its element schema must be statically known and supported.
+
+Fixed tuples represent fixed-shape arrays:
+```julia
+parse("[1, \"ready\"]", Tuple{Int,String})
+parse("[1, 2, 3]", NTuple{3,Int})
+```
+
+An unbounded `Tuple{Vararg{T}}` is unsupported because each runtime length would produce a different concrete type. Use `Vector{T}` instead.
+
+### Number Conversion
+
+Untyped numbers become `Float64`. Typed floating-point values use normal IEEE rounding and reject overflow to infinity.
+
+Integer targets are converted directly from the decimal token without first using `Float64`. Fractions and exponents are accepted only when their mathematical value is exactly integral:
+```julia
+parse("1.0", Int)    # 1
+parse("100e-2", Int) # 1
+parse("1e3", Int)    # 1000
+parse("1.1", Int)    # throws StaticJSON.ParseError
+```
+
+Signed, unsigned, and width-specific overflow is checked.
+
+### Untyped Parsing with JSONValue
+
+`parse(text)` returns a `JSONValue` whose payload follows this mapping:
+
+| JSON    | `JSONValue` payload      |
+|---------|--------------------------|
+| `null`  | `nothing`                |
+| Boolean | `Bool`                   |
+| Number  | `Float64`                |
+| String  | `String`                 |
+| Array   | `Vector{JSONValue}`      |
+| Object  | `Dict{String,JSONValue}` |
 
 ```julia
 document = parse("""
@@ -103,272 +179,94 @@ document = parse("""
 """)
 
 object = unwrap(document)        # Dict{String,JSONValue}
-name = unwrap(object["name"])    # "example"
 ports = unwrap(object["ports"])  # Vector{JSONValue}
 first_port = unwrap(ports[1])    # 80.0
 ```
 
-`unwrap` removes exactly one wrapper layer. It deliberately does not
-recursively create `Dict{String,Any}` or `Vector{Any}`.
+`unwrap` removes exactly one wrapper layer; nested array and object values remain wrapped. This closed recursive representation avoids `Vector{Any}` and `Dict{String,Any}` while retaining a consistent return type. See [`DEVELOPMENT.md`](DEVELOPMENT.md#untyped-parsing) for the type design.
 
-The untyped mapping is:
+### Input, Compliance, and Parse Errors
 
-| JSON | `JSONValue` payload |
-|---|---|
-| `null` | `nothing` |
-| Boolean | `Bool` |
-| Number | `Float64` |
-| String | `String` |
-| Array | `Vector{JSONValue}` |
-| Object | `Dict{String,JSONValue}` |
+The parser accepts any RFC 8259 value at the document root and enforces its number, string, escape, and whitespace grammar. It rejects comments, trailing commas, malformed UTF-8, invalid UTF-16 surrogate escapes, duplicate decoded object keys, and content following the root value.
 
-### Why `JSONValue` exists
+Malformed JSON and parser-detected target mismatches throw the unexported `StaticJSON.ParseError`, which reports a one-based byte offset into the input.
 
-JSON arrays and objects can recursively contain values of different kinds. A
-conventional Julia representation therefore uses `Vector{Any}` and
-`Dict{String,Any}`. Those containers erase the finite set of possible value
-types and encourage dynamic dispatch in code consuming the result.
+## Serialization
 
-Julia also does not permit a directly recursive union alias such as:
-
+`json(value)` serializes a supported Julia value to compact JSON:
 ```julia
-# Not valid Julia:
-const JSON = Union{Nothing,Bool,Float64,String,Vector{JSON},Dict{String,JSON}}
+text = json((name = "example", values = [1, 2], enabled = true))
+# {"name":"example","values":[1,2],"enabled":true}
 ```
 
-`JSONValue` closes that recursion through one nominal concrete type:
+### Supported Values
 
+| Julia value                                      | JSON representation                  |
+|--------------------------------------------------|--------------------------------------|
+| `nothing`                                        | `null`                               |
+| `Bool`                                           | Boolean                              |
+| Fixed-width integer or finite IEEE float         | Number                               |
+| `String`                                         | String                               |
+| `Vector`, concrete `AbstractVector`, fixed tuple | Array                                |
+| `Dict{String,T}`                                 | Object in dictionary iteration order |
+| Concrete struct or `NamedTuple`                  | Object in field declaration order    |
+| `JSONValue`                                      | Its recursively wrapped JSON value   |
+
+### Missing and Null
+
+Object members whose value is `missing` are omitted. `nothing` is serialized as an explicit `null`:
 ```julia
-struct JSONValue
-    value::Union{
-        Nothing,
-        Bool,
-        Float64,
-        String,
-        Dict{String,JSONValue},
-        Vector{JSONValue},
-    }
-end
-```
-
-The wrapper provides a consistent return type, concrete recursive containers,
-and a finite compiler-visible payload union. Consumers in a trimmed program can
-use explicit `isa` branches for the six payload variants without unresolved
-dynamic dispatch.
-
-## Typed Parsing
-
-Pass a target type as the second argument to decode directly into that type:
-
-```julia
-struct Server{T}
-    host::String
-    port::T
-    aliases::Vector{String}
-    note::Union{Nothing,String}
-    retries::Union{Missing,Int}
-end
-
-server = parse("""
-{
-  "port": 443.0,
-  "aliases": ["api"],
-  "note": null,
-  "host": "example.test"
-}
-""", Server{Int})
-```
-
-The typed parser decodes directly. It does not construct an intermediate
-`JSONValue` tree.
-
-Supported targets are:
-
-| Target | JSON representation |
-|---|---|
-| `JSONValue` | Any JSON value |
-| `Nothing` | `null` |
-| `Bool` | Boolean |
-| `String` | String |
-| Fixed-width signed or unsigned integer | Exactly integral number |
-| `Float16`, `Float32`, `Float64` | Number |
-| `Vector{T}` | Arbitrary-length array |
-| Concrete `AbstractVector{T}` | Array parsed as `Vector{T}`, then converted |
-| Fixed `Tuple` or `NTuple` | Array with exactly the declared length |
-| `Dict{String,T}` | Object with values decoded as `T` |
-| Concrete `NamedTuple` | Object matching its names and types |
-| Concrete struct | Object matching its fields and field types |
-
-`Int8` through `Int128`, `UInt8` through `UInt128`, `Int`, and `UInt` are
-supported. `BigInt` and `BigFloat` are intentionally excluded.
-
-### Converted Vector Types
-
-Concrete `AbstractVector` targets are supported through Julia's standard
-`convert` protocol. StaticJSON first parses the JSON array as
-`Vector{eltype(T)}` and then calls `convert(T, values)`:
-
-```julia
-using GeometryBasics: Vec
-
-position = parse("[1, 2, 3]", Vec{3,Float32})
-```
-
-This also works for nested fields:
-
-```julia
-struct Point
-    position::Vec{3,Float32}
-end
-
-point = parse("{\"position\":[1,2,3]}", Point)
-```
-
-StaticJSON does not depend on GeometryBasics. Both the target and its element
-type are known during compilation, so the conversion call remains statically
-resolvable. The third-party `convert` method must itself be JuliaC-compatible.
-Conversion errors, including fixed-length mismatches, are propagated unchanged.
-Abstract vector targets and multidimensional arrays remain unsupported.
-
-### Exact Object Matching
-
-Struct and `NamedTuple` keys can appear in any order. Unknown keys, duplicate
-keys, and missing required keys throw `StaticJSON.ParseError`. JSON names must
-exactly equal Julia field names; there is no name-remapping mechanism.
-
-Structs are constructed through their positional constructor in field order:
-
-```julia
-Target(field1, field2, ...)
-```
-
-Keyword defaults are not consulted. A custom inner constructor may validate
-the completed values, but it must provide the matching positional constructor.
-
-### Nullable And Optional Fields
-
-`Nothing` represents an explicit JSON `null`. `Missing` represents an absent
-object field:
-
-| Field type | Key absent | Explicit `null` | Ordinary value |
-|---|---|---|---|
-| `Union{Nothing,T}` | Error | `nothing` | Decoded as `T` |
-| `Union{Missing,T}` | `missing` | Error | Decoded as `T` |
-| `Union{Missing,Nothing,T}` | `missing` | `nothing` | Decoded as `T` |
-
-`Missing` is not a JSON token and cannot be produced for an array element or a
-top-level value.
-
-### Number Conversion
-
-Untyped numbers become `Float64`. Typed floating-point values use normal IEEE
-rounding and reject overflow to infinity.
-
-Integer targets are converted directly from the decimal token without first
-using `Float64`. Decimal fractions and exponents are accepted when the
-mathematical value is exactly integral:
-
-```julia
-parse("1.0", Int)    # 1
-parse("100e-2", Int) # 1
-parse("1e3", Int)    # 1000
-parse("1.1", Int)    # throws ParseError
-```
-
-Signed, unsigned, and width-specific overflow is checked.
-
-### Tuples And Named Tuples
-
-Fixed tuples represent fixed-shape JSON arrays:
-
-```julia
-parse("[1, \"ready\"]", Tuple{Int,String})
-parse("[1, 2, 3]", NTuple{3,Int})
-```
-
-An unbounded `Tuple{Vararg{T}}` is unsupported because every runtime array
-length would produce a different concrete tuple type. Use `Vector{T}` instead.
-
-A `NamedTuple` is a statically typed object target:
-
-```julia
-Target = @NamedTuple{host::String, port::Int}
-parse("{\"port\":8080,\"host\":\"localhost\"}", Target)
-```
-
-## Deliberate Exclusions
-
-General unions such as `Union{Int,String}` are unsupported because alternatives
-can overlap and require precedence, backtracking, or discriminator rules.
-Only the `Missing` and `Nothing` sentinel unions described above are accepted.
-
-The package also excludes field-name remapping, defaults other than `missing`,
-and custom decoding hooks. Parse special representations into `String`, a
-primitive target, or `JSONValue`, then perform application-specific conversion
-separately.
-
-## JSON Compliance
-
-The parser accepts any RFC 8259 value at the document root and enforces its
-number, string, escape, and whitespace grammar. It rejects comments, trailing
-commas, malformed UTF-8, invalid UTF-16 surrogate escapes, duplicate decoded
-object keys, and content following the root value.
-
-Errors are reported as `StaticJSON.ParseError` with a one-based byte offset.
-The error type remains unexported but can be named with its module qualifier.
-
-## JuliaC Trimming
-
-The runtime parser does not use `Any`, `eval`, `invokelatest`, runtime type
-construction, or runtime field reflection. Struct, tuple, and `NamedTuple`
-decoders are generated for concrete target types, leaving direct field parsing
-and constructor calls in compiled code.
-
-Serialization follows the same approach. A concrete byte writer handles JSON
-syntax and indentation, while generated writers embed acyclic struct,
-collection, tuple, and sentinel-union schemas into a finite static call graph.
-
-Generated decoders embed acyclic composite schemas transitively. This avoids
-Julia's recursive inference limiter dropping deeply nested vector/struct edges
-during safe trimming. A compile-time `seen` stack terminates genuine recursive
-struct schemas with an ordinary recursive method call.
-
-As with all JuliaC applications, every typed target used by a trimmed binary
-must be statically reachable from an entrypoint. Runtime JSON contents remain
-arbitrary; only the requested Julia schema is fixed.
-
-The integration test uses JuliaC's library API rather than its command-line
-wrapper:
-
-```julia
-image = JuliaC.ImageRecipe(
-    output_type = "--output-exe",
-    trim_mode = "safe",
-    file = "app.jl",
-    project = pwd(),
-    img_path = "image.o.a",
+value = (
+    required = 1,
+    optional = missing,
+    nullable = nothing,
 )
-JuliaC.compile_products(image)
 
-link = JuliaC.LinkRecipe(image_recipe = image, outname = "app")
-JuliaC.link_products(link)
+json(value) # {"required":1,"nullable":null}
 ```
 
-Run the package tests and trimming verification with:
+A top-level `missing` or `missing` inside an array or tuple is an error because JSON has no corresponding value.
 
-```sh
-julia --project=. -e 'using Pkg; Pkg.test()'
-julia --project=test test/juliac/verify.jl
+### Pretty Printing
+
+Pass a nonnegative integer as `indent` to add structural line breaks and that many spaces per nesting level:
+
+```julia
+json((name = "example", values = [1, 2]); indent = 2)
 ```
 
-## Coverage
-
-Run source coverage through the project-local `Coverage` dependency:
-
-```sh
-julia --project=test -e 'using Coverage; clean_folder(".")'
-julia --project=. -e 'using Pkg; Pkg.test(coverage=true)'
-julia --project=test test/coverage.jl
+```json
+{
+  "name": "example",
+  "values": [
+    1,
+    2
+  ]
+}
 ```
 
-The test suite is maintained at 100% executable source-line coverage.
+The default `indent=nothing` produces compact output. `indent=0` uses line breaks without leading spaces. Empty arrays and objects remain `[]` and `{}`.
+
+### Serialization Errors
+
+Unsupported values throw the unexported `StaticJSON.SerializationError`. Serialization rejects non-finite floats, invalid UTF-8, and unsupported static schemas. Errors raised while accessing a custom vector representation propagate unchanged.
+
+## Limitations
+
+General unions such as `Union{Int,String}` are unsupported because alternatives can overlap and require precedence, backtracking, or discriminator rules. Only the `Missing` and `Nothing` sentinel unions described above are accepted.
+
+StaticJSON also excludes `BigInt`, `BigFloat`, multidimensional arrays, abstract schema fields, abstract collection targets, non-string dictionary keys, field-name remapping, keyword defaults, and custom decoding hooks. Parse special representations into `String`, a supported primitive, or `JSONValue`, then apply application-specific conversion separately.
+
+Serialization input must be acyclic. Recursive types are supported when their runtime values terminate.
+
+## JuliaC Compatibility
+
+The runtime parser and serializer avoid `Any`, `eval`, `invokelatest`, runtime type construction, and runtime field reflection. Generated methods embed concrete struct, tuple, collection, and sentinel-union schemas into a finite, compiler-visible call graph.
+
+Every typed target used by a trimmed binary must be statically reachable from an entrypoint. Runtime JSON contents and collection sizes remain arbitrary; only the requested Julia schema is fixed.
+
+See [`DEVELOPMENT.md`](DEVELOPMENT.md#juliac-compatibility) for the compiler design and [`test/juliac/trim_app.jl`](test/juliac/trim_app.jl) for an end-to-end trimmed application.
+
+## Development
+
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) for the implementation overview, test and coverage commands, and JuliaC integration-test setup.

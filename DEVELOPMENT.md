@@ -30,7 +30,17 @@ directly without invoking another JSON library.
 value = parse(json)
 ```
 
-Every value is returned as a concrete `JSONValue`:
+JSON arrays and objects can recursively contain different value kinds. A
+conventional Julia representation therefore uses `Vector{Any}` and
+`Dict{String,Any}`, which erase the finite set of possible payload types. Julia
+also does not permit a directly recursive union alias:
+
+```julia
+# Not valid Julia:
+const JSON = Union{Nothing,Bool,Float64,String,Vector{JSON},Dict{String,JSON}}
+```
+
+`JSONValue` closes that recursion through one nominal concrete type:
 
 ```julia
 struct JSONValue
@@ -227,3 +237,47 @@ As with typed parsing, acyclic schemas are embedded transitively and genuinely
 recursive structs stop at an ordinary recursive method edge. Consequently,
 runtime values can vary without requiring runtime method discovery in a JuliaC
 binary.
+
+## JuliaC Integration Test
+
+The integration test uses JuliaC's library API rather than its command-line
+wrapper. The core compile and link sequence is:
+
+```julia
+image = JuliaC.ImageRecipe(
+    output_type = "--output-exe",
+    trim_mode = "safe",
+    file = "app.jl",
+    project = pwd(),
+    img_path = "image.o.a",
+)
+JuliaC.compile_products(image)
+
+link = JuliaC.LinkRecipe(image_recipe = image, outname = "app")
+JuliaC.link_products(link)
+```
+
+[`test/juliac/verify.jl`](test/juliac/verify.jl) applies this sequence to
+[`test/juliac/trim_app.jl`](test/juliac/trim_app.jl), runs the linked executable,
+and removes its temporary compiler products.
+
+## Running Tests
+
+Run the package tests and safe-trimming verification from the repository root:
+
+```sh
+julia --project=. -e 'using Pkg; Pkg.test()'
+julia --project=test test/juliac/verify.jl
+```
+
+## Coverage
+
+Run source coverage through the test project's `Coverage` dependency:
+
+```sh
+julia --project=test -e 'using Coverage; clean_folder(".")'
+julia --project=. -e 'using Pkg; Pkg.test(coverage=true)'
+julia --project=test test/coverage.jl
+```
+
+The test suite is maintained at 100% executable source-line coverage.
