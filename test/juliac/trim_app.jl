@@ -24,10 +24,26 @@ struct TrimTable{T}
     offset::T
 end
 
+struct TrimVec{N,T} <: AbstractVector{T}
+    data::NTuple{N,T}
+end
+
+"""Return the statically known dimensions of a `TrimVec`."""
+Base.size(::TrimVec{N}) where {N} = (N,)
+
+"""Return one element from a `TrimVec`."""
+Base.getindex(vector::TrimVec, index::Int) = vector.data[index]
+
+"""Convert a runtime-sized vector into a length-checked `TrimVec`."""
+function Base.convert(::Type{TrimVec{N,T}}, values::Vector{T}) where {N,T}
+    length(values) == N || throw(DimensionMismatch("expected $N elements"))
+    return TrimVec{N,T}(ntuple(index -> values[index], Val(N)))
+end
+
 struct TrimPoint{T}
     label::String
-    position::Vector{T}
-    direction::Vector{T}
+    position::TrimVec{3,T}
+    direction::TrimVec{3,T}
 end
 
 struct TrimPath{T}

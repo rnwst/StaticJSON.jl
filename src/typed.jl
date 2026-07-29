@@ -38,6 +38,9 @@ function _target_error(T, seen::Tuple = ())
         return "target type must be fully specified"
     elseif T <: Vector
         return _target_error(eltype(T), seen)
+    elseif T <: AbstractVector
+        isconcretetype(T) || return "converted AbstractVector targets must be concrete"
+        return _target_error(eltype(T), seen)
     elseif T <: AbstractArray
         return "only one-dimensional Vector targets are supported"
     elseif T <: Dict
@@ -118,6 +121,26 @@ function _vector_decoder_expr(T, seen::Tuple = ())
             end
         end
         $values
+    end
+end
+
+"""
+    _converted_vector_decoder_expr(T, seen=())
+
+Build an embeddable decoder for a concrete `AbstractVector` target `T`. JSON
+elements are first parsed into `Vector{eltype(T)}` before the standard
+`convert(T, values)` protocol constructs the requested representation.
+"""
+function _converted_vector_decoder_expr(T, seen::Tuple = ())
+    vector_decoder = _vector_decoder_expr(eltype(T), seen)
+    values = gensym(:values)
+    converted = gensym(:converted)
+    return quote
+        $values = $vector_decoder
+        $converted = convert($T, $values)
+        $converted isa $T ||
+            _fail(cursor, "vector conversion did not return the requested target type")
+        $converted
     end
 end
 
@@ -205,6 +228,8 @@ inference limiter from dropping deeply nested JuliaC reachability edges.
 function _direct_decoder_expr(T, seen::Tuple = ())
     if T isa DataType && T <: Vector
         return _vector_decoder_expr(eltype(T), seen)
+    elseif T isa DataType && T <: AbstractVector
+        return _converted_vector_decoder_expr(T, seen)
     elseif T isa DataType && T <: Dict && keytype(T) === String
         return _dict_decoder_expr(valtype(T), seen)
     elseif T isa DataType && T <: Tuple
@@ -483,6 +508,9 @@ error. Classification runs during specialization, never at parser runtime.
 function _fallback_decoder_expr(T)
     if T isa Union
         decoder = _union_decoder_expr(T)
+        return :(return $decoder)
+    elseif T isa DataType && T <: AbstractVector
+        decoder = _converted_vector_decoder_expr(T)
         return :(return $decoder)
     end
 

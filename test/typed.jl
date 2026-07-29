@@ -1,3 +1,5 @@
+using GeometryBasics: Vec
+
 struct Service{T}
     host::String
     port::T
@@ -31,6 +33,10 @@ struct RawField
     value::JSONValue
 end
 
+struct VectorRecord
+    position::Vec{3,Float32}
+end
+
 @enum TestChoice first_choice second_choice
 
 @testset "Generated decoder selection" begin
@@ -40,6 +46,23 @@ end
     @test StaticJSON._direct_decoder_expr(named_target) isa Expr
     @test StaticJSON._direct_decoder_expr(named_target, (named_target,)) isa Expr
     @test StaticJSON._direct_decoder_expr(Service{Int}) isa Expr
+    @test StaticJSON._direct_decoder_expr(Vec{3,Float32}) isa Expr
+end
+
+@testset "Converted AbstractVector targets" begin
+    vector = @inferred parse("[1,2.5,3]", Vec{3,Float32})
+    @test typeof(vector) === Vec{3,Float32}
+    @test Tuple(vector) == (1.0f0, 2.5f0, 3.0f0)
+    @test Tuple(parse("[1.0,2,3e0]", Vec{3,Int})) == (1, 2, 3)
+
+    record = parse("{\"position\":[1,2,3]}", VectorRecord)
+    @test typeof(record.position) === Vec{3,Float32}
+    @test Tuple(record.position) == (1.0f0, 2.0f0, 3.0f0)
+
+    @test_throws DimensionMismatch parse("[1,2]", Vec{3,Float32})
+    @test_throws DimensionMismatch parse("[1,2,3,4]", Vec{3,Float32})
+    @test_throws ParseError parse("[1,2,3]", AbstractVector{Float32})
+    @test_throws ParseError parse("[1,\"x\",3]", Vec{3,Float32})
 end
 
 @testset "Typed primitives and numbers" begin

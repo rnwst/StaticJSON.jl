@@ -86,11 +86,17 @@ StaticJSON examines the target type at compilation time:
 - Struct field names
 - Struct field types
 - Vector element types
+- Converted concrete `AbstractVector` element types
 - Tuple element types
 - `NamedTuple` names and types
 - `Missing` and `Nothing` unions
 
 It then generates a decoder specialized for that schema.
+
+For a concrete `AbstractVector` target that is not an ordinary `Vector`, the
+generated decoder first builds `Vector{eltype(T)}` and then emits a direct
+`convert(T, values)` call. This supports fixed-size representations without
+introducing package-specific hooks or runtime method discovery.
 
 For a struct such as:
 

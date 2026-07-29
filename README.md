@@ -122,6 +122,7 @@ Supported targets are:
 | Fixed-width signed or unsigned integer | Exactly integral number |
 | `Float16`, `Float32`, `Float64` | Number |
 | `Vector{T}` | Arbitrary-length array |
+| Concrete `AbstractVector{T}` | Array parsed as `Vector{T}`, then converted |
 | Fixed `Tuple` or `NTuple` | Array with exactly the declared length |
 | `Dict{String,T}` | Object with values decoded as `T` |
 | Concrete `NamedTuple` | Object matching its names and types |
@@ -129,6 +130,34 @@ Supported targets are:
 
 `Int8` through `Int128`, `UInt8` through `UInt128`, `Int`, and `UInt` are
 supported. `BigInt` and `BigFloat` are intentionally excluded.
+
+### Converted Vector Types
+
+Concrete `AbstractVector` targets are supported through Julia's standard
+`convert` protocol. StaticJSON first parses the JSON array as
+`Vector{eltype(T)}` and then calls `convert(T, values)`:
+
+```julia
+using GeometryBasics: Vec
+
+position = parse("[1, 2, 3]", Vec{3,Float32})
+```
+
+This also works for nested fields:
+
+```julia
+struct Point
+    position::Vec{3,Float32}
+end
+
+point = parse("{\"position\":[1,2,3]}", Point)
+```
+
+StaticJSON does not depend on GeometryBasics. Both the target and its element
+type are known during compilation, so the conversion call remains statically
+resolvable. The third-party `convert` method must itself be JuliaC-compatible.
+Conversion errors, including fixed-length mismatches, are propagated unchanged.
+Abstract vector targets and multidimensional arrays remain unsupported.
 
 ### Exact Object Matching
 
