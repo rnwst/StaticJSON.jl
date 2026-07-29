@@ -1,0 +1,10 @@
+name = "StaticJSON"
+uuid = "ee4b7e62-7145-4b5d-a714-6447bf332471"
+version = "0.1.0"
+authors = ["R. N. West and contributors"]
+
+[compat]
+julia = "1.12"
+
+[workspace]
+projects = ["test"]

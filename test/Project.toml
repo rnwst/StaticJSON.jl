@@ -1,0 +1,10 @@
+[deps]
+Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
+JuliaC = "acedd4c2-ced6-4a15-accc-2607eb759ba2"
+StaticJSON = "ee4b7e62-7145-4b5d-a714-6447bf332471"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+Coverage = "1.8.1"
+JuliaC = "0.3.8"
+julia = "1.12"
