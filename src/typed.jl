@@ -1,16 +1,5 @@
 "Fixed-width integer targets supported by the typed decoder."
-const FixedInteger = Union{
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    Int128,
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
-    UInt128,
-}
+const FixedInteger = Union{Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128}
 
 "IEEE floating-point targets supported by the typed decoder."
 const FixedFloat = Union{Float16,Float32,Float64}
@@ -237,9 +226,15 @@ function _direct_decoder_expr(T, seen::Tuple = ())
     elseif T isa DataType && T <: NamedTuple
         T in seen && return :(_parse_namedtuple_value!(cursor, $T))
         return _object_decoder_expr(T, true, (seen..., T))
-    elseif T isa DataType && isstructtype(T) &&
-           T !== JSONValue && T !== Nothing && T !== Missing && T !== Bool && T !== String &&
-           !(T <: Number) && !isprimitivetype(T)
+    elseif T isa DataType &&
+           isstructtype(T) &&
+           T !== JSONValue &&
+           T !== Nothing &&
+           T !== Missing &&
+           T !== Bool &&
+           T !== String &&
+           !(T <: Number) &&
+           !isprimitivetype(T)
         T in seen && return :(_parse_struct_value!(cursor, $T))
         return _object_decoder_expr(T, false, (seen..., T))
     elseif T isa Union
@@ -351,26 +346,18 @@ function _tuple_decoder_expr(T, seen::Tuple = ())
     for (index, (variable, parameter)) in enumerate(zip(variables, parameters))
         push!(statements, :(_skip_whitespace!(cursor)))
         if index > 1
-            push!(
-                statements,
-                :(_expect_byte!(cursor, UInt8(','), $length_message)),
-            )
+            push!(statements, :(_expect_byte!(cursor, UInt8(','), $length_message)))
             push!(statements, :(_skip_whitespace!(cursor)))
         end
         push!(
             statements,
-            :(_peek_byte(cursor) == UInt8(']') &&
-              _fail(cursor, $length_message)),
+            :(_peek_byte(cursor) == UInt8(']') && _fail(cursor, $length_message)),
         )
         decoder = _direct_decoder_expr(parameter, seen)
         push!(statements, :($variable = $decoder))
     end
     push!(statements, :(_skip_whitespace!(cursor)))
-    push!(
-        statements,
-        :(_peek_byte(cursor) == UInt8(']') ||
-          _fail(cursor, $length_message)),
-    )
+    push!(statements, :(_peek_byte(cursor) == UInt8(']') || _fail(cursor, $length_message)))
     push!(statements, :(cursor.position += 1))
     return Expr(:block, statements..., Expr(:tuple, variables...))
 end
@@ -397,33 +384,30 @@ generated body keeps heterogeneous field slots statically typed while allowing
 JSON object members to appear in any order.
 """
 function _object_decoder_expr(T, namedtuple::Bool, seen::Tuple = ())
-    names = fieldnames(T)
+    names = map(Symbol, fieldnames(T))
     types = fieldtypes(T)
     variables = [gensym(name) for name in names]
-    field_seen = [gensym(Symbol(:seen_, name)) for name in names]
 
     statements = Expr[
         :(_skip_whitespace!(cursor)),
         :(_peek_byte(cursor) == UInt8('{') || _expect_value_kind(cursor, "an object")),
         :(_expect_byte!(cursor, UInt8('{'), "expected a JSON object")),
     ]
-    for (variable, flag) in zip(variables, field_seen)
+    for variable in variables
         push!(statements, :(local $variable))
-        push!(statements, :($flag = false))
     end
 
     branch = :(_fail(cursor, "unknown object key '$key' for target type"))
     for index in reverse(eachindex(names))
         name = String(names[index])
         variable = variables[index]
-        flag = field_seen[index]
+        defined = Expr(:isdefined, variable)
         fieldtype = types[index]
         decoder = _direct_decoder_expr(fieldtype, seen)
         branch = quote
             if key == $name
-                $flag && _fail(cursor, "duplicate object key '$key'")
+                $defined && _fail(cursor, "duplicate object key '$key'")
                 $variable = $decoder
-                $flag = true
             else
                 $branch
             end
@@ -454,12 +438,12 @@ function _object_decoder_expr(T, namedtuple::Bool, seen::Tuple = ())
         name = String(names[index])
         missing_message = "missing required object key '$name'"
         variable = variables[index]
-        flag = field_seen[index]
+        defined = Expr(:isdefined, variable)
         fieldtype = types[index]
         if Missing <: fieldtype
-            push!(statements, :($flag || ($variable = missing)))
+            push!(statements, :($defined || ($variable = missing)))
         else
-            push!(statements, :($flag || _fail(cursor, $missing_message)))
+            push!(statements, :($defined || _fail(cursor, $missing_message)))
         end
     end
 
@@ -469,8 +453,12 @@ function _object_decoder_expr(T, namedtuple::Bool, seen::Tuple = ())
     push!(statements, :($constructed = $result))
     push!(
         statements,
-        :($constructed isa $T ||
-          _fail(cursor, "the positional constructor did not return the requested target type")),
+        :(
+            $constructed isa $T || _fail(
+                cursor,
+                "the positional constructor did not return the requested target type",
+            )
+        ),
     )
     return Expr(:block, statements..., constructed)
 end
@@ -480,7 +468,10 @@ end
 
 Parse a JSON object into a concrete `NamedTuple` with exact key matching.
 """
-@generated function _parse_namedtuple_value!(cursor::Cursor, ::Type{T}) where {T<:NamedTuple}
+@generated function _parse_namedtuple_value!(
+    cursor::Cursor,
+    ::Type{T},
+) where {T<:NamedTuple}
     return _object_decoder_expr(T, true, (T,))
 end
 
@@ -514,9 +505,17 @@ function _fallback_decoder_expr(T)
         return :(return $decoder)
     end
 
-    unsupported = T isa UnionAll || !(T isa DataType) || !isconcretetype(T) ||
-                  T <: Number || T <: AbstractString || T <: AbstractArray ||
-                  T <: AbstractDict || T <: Tuple || T <: Enum || isprimitivetype(T)
+    unsupported =
+        T isa UnionAll ||
+        !(T isa DataType) ||
+        !isconcretetype(T) ||
+        T <: Number ||
+        T <: AbstractString ||
+        T <: AbstractArray ||
+        T <: AbstractDict ||
+        T <: Tuple ||
+        T <: Enum ||
+        isprimitivetype(T)
     (unsupported || !isstructtype(T)) && return :(_fail(cursor, "unsupported target type"))
     return :(return _parse_struct_value!(cursor, T))
 end

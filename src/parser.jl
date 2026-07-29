@@ -7,14 +7,7 @@ A concrete wrapper for an untyped JSON value. Its payload is one of `nothing`,
 `Any`.
 """
 struct JSONValue
-    value::Union{
-        Nothing,
-        Bool,
-        Float64,
-        String,
-        Dict{String,JSONValue},
-        Vector{JSONValue},
-    }
+    value::Union{Nothing,Bool,Float64,String,Dict{String,JSONValue},Vector{JSONValue}}
 end
 
 """
@@ -181,7 +174,7 @@ Consume four hexadecimal digits and return the represented UTF-16 code unit.
 """
 function _parse_hex4!(cursor::Cursor)
     value = UInt32(0)
-    for _ in 1:4
+    for _ = 1:4
         digit = _hex_value(_take_byte!(cursor))
         digit >= 0 || _fail(cursor, "invalid hexadecimal digit in Unicode escape")
         value = (value << 4) | UInt32(digit)
@@ -272,12 +265,20 @@ required, and append its UTF-8 representation.
 function _append_unicode_escape!(output::Vector{UInt8}, cursor::Cursor)
     first = _parse_hex4!(cursor)
     if 0xd800 <= first <= 0xdbff
-        _expect_byte!(cursor, UInt8('\\'), "high surrogate must be followed by a low surrogate")
-        _expect_byte!(cursor, UInt8('u'), "high surrogate must be followed by a low surrogate")
+        _expect_byte!(
+            cursor,
+            UInt8('\\'),
+            "high surrogate must be followed by a low surrogate",
+        )
+        _expect_byte!(
+            cursor,
+            UInt8('u'),
+            "high surrogate must be followed by a low surrogate",
+        )
         second = _parse_hex4!(cursor)
         0xdc00 <= second <= 0xdfff || _fail(cursor, "invalid low surrogate")
-        codepoint = UInt32(0x10000) + ((first - UInt32(0xd800)) << 10) +
-                    (second - UInt32(0xdc00))
+        codepoint =
+            UInt32(0x10000) + ((first - UInt32(0xd800)) << 10) + (second - UInt32(0xdc00))
         _append_codepoint!(output, codepoint)
     elseif 0xdc00 <= first <= 0xdfff
         _fail(cursor, "low surrogate without a preceding high surrogate")
@@ -401,7 +402,8 @@ function _scan_number!(cursor::Cursor)
     byte = _peek_byte(cursor)
     if byte == UInt8('0')
         cursor.position += 1
-        _is_digit(_peek_byte(cursor)) && _fail(cursor, "leading zeros are not valid JSON numbers")
+        _is_digit(_peek_byte(cursor)) &&
+            _fail(cursor, "leading zeros are not valid JSON numbers")
     elseif UInt8('1') <= byte <= UInt8('9')
         cursor.position += 1
         while _is_digit(_peek_byte(cursor))
@@ -459,7 +461,7 @@ Return the decimal mantissa digits with sign and decimal point removed.
 """
 function _mantissa_digits(cursor::Cursor, token::NumberToken)
     digits = UInt8[]
-    for index in token.first:token.mantissa_last
+    for index = token.first:token.mantissa_last
         byte = codeunit(cursor.source, index)
         _is_digit(byte) && push!(digits, byte - UInt8('0'))
     end
@@ -512,7 +514,7 @@ function _parse_integer_token(cursor::Cursor, token::NumberToken, ::Type{T}) whe
     if scale < 0
         removed = -scale
         removed >= kept && _fail(cursor, "JSON number is not an exact integer")
-        for index in (kept - removed + 1):kept
+        for index = (kept-removed+1):kept
             iszero(digits[index]) || _fail(cursor, "JSON number is not an exact integer")
         end
         kept -= removed
@@ -520,14 +522,15 @@ function _parse_integer_token(cursor::Cursor, token::NumberToken, ::Type{T}) whe
         appended_zeros = scale
     end
 
-    token.negative && T <: Unsigned &&
+    token.negative &&
+        T <: Unsigned &&
         _fail(cursor, "negative JSON number cannot be represented by an unsigned integer")
     limit = _integer_magnitude_limit(T, token.negative)
     magnitude = UInt128(0)
-    for index in 1:kept
+    for index = 1:kept
         magnitude = _checked_decimal_digit(cursor, magnitude, digits[index], limit)
     end
-    for _ in 1:appended_zeros
+    for _ = 1:appended_zeros
         magnitude = _checked_decimal_digit(cursor, magnitude, 0x00, limit)
     end
 
@@ -602,7 +605,8 @@ function _parse_untyped_object!(cursor::Cursor)
         return values
     end
     while true
-        _peek_byte(cursor) == UInt8('"') || _fail(cursor, "object keys must be JSON strings")
+        _peek_byte(cursor) == UInt8('"') ||
+            _fail(cursor, "object keys must be JSON strings")
         key = _parse_string!(cursor)
         haskey(values, key) && _fail(cursor, "duplicate object key '$key'")
         _skip_whitespace!(cursor)

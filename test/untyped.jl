@@ -21,8 +21,7 @@
 
     @test unwrap(parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"")) == "\"\\/\b\f\n\r\t"
     @test unwrap(parse("\"\\u0041\\u00a2\\u20ac\\ud800\\udc00\"")) == "A¢€𐀀"
-    @test unwrap(parse("\"¢ࠀက퟿𐀀\U00040000\U0010ffff\"")) ==
-          "¢ࠀက퟿𐀀\U00040000\U0010ffff"
+    @test unwrap(parse("\"¢ࠀက퟿𐀀\U00040000\U0010ffff\"")) == "¢ࠀက퟿𐀀\U00040000\U0010ffff"
 
     duplicate = try
         parse("{\"a\":1,\"\\u0061\":2}")

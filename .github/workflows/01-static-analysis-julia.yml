@@ -1,0 +1,71 @@
+name: Static analysis
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags: ['*']
+    paths:
+      - '**/*.jl'
+      - '**/Project.toml'
+      - '.github/workflows/01-static-analysis-julia.yml'
+  pull_request:
+    paths:
+      - '**/*.jl'
+      - '**/Project.toml'
+      - '.github/workflows/01-static-analysis-julia.yml'
+  workflow_dispatch:
+jobs:
+  format:
+    name: JuliaFormatter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.12'
+
+      - uses: julia-actions/cache@v2
+        with:
+          delete-old-caches: 'false'
+
+      - name: Instantiate workspace
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Run JuliaFormatter
+        run: |
+          julia --project=dev -e '
+            import JuliaFormatter
+            @assert JuliaFormatter.format(".")
+          '
+
+  jet:
+    name: JET static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.12'
+
+      - uses: julia-actions/cache@v2
+        with:
+          delete-old-caches: 'false'
+
+      - name: Instantiate workspace
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Run JET (pretty output + fail on issues)
+        run: |
+          julia --color=yes --project=dev -e '
+            using JET, StaticJSON
+
+            res = JET.report_package(StaticJSON; target_modules=(StaticJSON,))
+
+            show(stdout, MIME"text/plain"(), res)
+            println()
+
+            isempty(JET.get_reports(res)) || error("JET reported issues")
+          '

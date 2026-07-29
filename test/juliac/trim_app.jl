@@ -99,8 +99,7 @@ Retain a genuinely recursive schema as a runtime-string trim entrypoint. The
 generated decoder must terminate its compile-time expansion at the recursive
 edge while preserving the runtime call.
 """
-parse_recursive_node(json::String)::RecursiveTrimNode =
-    parse(json, RecursiveTrimNode)
+parse_recursive_node(json::String)::RecursiveTrimNode = parse(json, RecursiveTrimNode)
 
 Base.Experimental.entrypoint(parse_recursive_node, (String,))
 
@@ -212,8 +211,7 @@ function @main(args)::Cint
         return Cint(13)
     pretty_deep = json(deep; indent = 2)
     occursin('\n', pretty_deep) || return Cint(14)
-    parse(pretty_deep, DeepTrimConfig{Float32}).groups[1].name == "g" ||
-        return Cint(15)
+    parse(pretty_deep, DeepTrimConfig{Float32}).groups[1].name == "g" || return Cint(15)
     occursin("\"items\"", normalize_untyped(text)) || return Cint(16)
 
     rejected = false

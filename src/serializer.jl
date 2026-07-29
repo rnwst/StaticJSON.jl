@@ -54,7 +54,8 @@ function _indent_width(::Nothing)
 end
 
 function _indent_width(indent::Integer)
-    indent isa Bool && throw(ArgumentError("indent must be a nonnegative integer or nothing"))
+    indent isa Bool &&
+        throw(ArgumentError("indent must be a nonnegative integer or nothing"))
     indent < 0 && throw(ArgumentError("indent must be nonnegative"))
     indent > typemax(Int) && throw(ArgumentError("indent is too large"))
     return Int(indent)
@@ -81,8 +82,8 @@ Write a newline followed by indentation for the writer's current depth.
 """
 function _write_newline_indent!(writer::JSONWriter)
     push!(writer.output, UInt8('\n'))
-    for _ in 1:writer.depth
-        for _ in 1:writer.indentation
+    for _ = 1:writer.depth
+        for _ = 1:writer.indentation
             push!(writer.output, UInt8(' '))
         end
     end
@@ -279,10 +280,12 @@ function _serializable_union_expr(T, value, seen::Tuple)
     allows_nothing = Nothing in members
     payload_expr = payload === nothing ? nothing : _serializer_expr(payload, value, seen)
 
-    missing_branch = allows_missing ?
-                     :($value === missing &&
-                       _serialization_fail("missing is only valid as an omitted object member")) :
-                     nothing
+    missing_branch =
+        allows_missing ?
+        :(
+            $value === missing &&
+            _serialization_fail("missing is only valid as an omitted object member")
+        ) : nothing
     if payload === nothing
         value_expr = :(_write_value!(writer, nothing))
     elseif allows_nothing
@@ -323,10 +326,7 @@ Build an unrolled array writer for a concrete tuple type.
 """
 function _serializable_tuple_expr(T, value, seen::Tuple)
     first = gensym(:first)
-    statements = Expr[
-        :(_open_collection!(writer, UInt8('['))),
-        :($first = true),
-    ]
+    statements = Expr[:(_open_collection!(writer, UInt8('['))), :($first = true)]
     for (index, fieldtype) in enumerate(fieldtypes(T))
         fieldvalue = :(getfield($value, $index))
         push!(statements, :($first = _before_item!(writer, $first)))
@@ -394,11 +394,9 @@ declaration order and omitting fields whose value is `missing`.
 """
 function _serializable_object_expr(T, value, seen::Tuple)
     first = gensym(:first)
-    statements = Expr[
-        :(_open_collection!(writer, UInt8('{'))),
-        :($first = true),
-    ]
-    for (index, (name, fieldtype)) in enumerate(zip(fieldnames(T), fieldtypes(T)))
+    statements = Expr[:(_open_collection!(writer, UInt8('{'))), :($first = true)]
+    for (index, (raw_name, fieldtype)) in enumerate(zip(fieldnames(T), fieldtypes(T)))
+        name = Symbol(raw_name)
         fieldvalue = gensym(name)
         present_expr = _serializable_present_expr(fieldtype, fieldvalue, seen)
         write_field = quote
@@ -426,8 +424,13 @@ Acyclic composite schemas are embedded, while repeated recursive struct types
 fall back to the already generated writer method.
 """
 function _serializer_expr(T, value, seen::Tuple = ())
-    if T === JSONValue || T === Nothing || T === Missing || T === Bool || T === String ||
-       T <: FixedInteger || T <: FixedFloat
+    if T === JSONValue ||
+       T === Nothing ||
+       T === Missing ||
+       T === Bool ||
+       T === String ||
+       T <: FixedInteger ||
+       T <: FixedFloat
         return :(_write_value!(writer, $value))
     elseif T isa Union
         return _serializable_union_expr(T, value, seen)
@@ -492,7 +495,11 @@ function _serializable_type_error(T, seen::Tuple = ())
         return nothing
     elseif !isconcretetype(T)
         return "value type must be concrete"
-    elseif T === Symbol || T === Module || T <: Number || T <: AbstractString || T <: Enum ||
+    elseif T === Symbol ||
+           T === Module ||
+           T <: Number ||
+           T <: AbstractString ||
+           T <: Enum ||
            isprimitivetype(T)
         return "unsupported value type"
     end

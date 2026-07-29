@@ -1,0 +1,19 @@
+name: Basic checks
+on: [pull_request]
+jobs:
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wagoid/commitlint-github-action@v6
+  filepaths:
+    name: Paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Path checks
+        id: pathcheck
+        uses: arnesor/gha-path-checker@master
+        with:
+          allow_non_ascii: false

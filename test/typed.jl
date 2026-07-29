@@ -137,21 +137,32 @@ end
     }
     value = parse("{\"port\":8080.0,\"host\":\"localhost\",\"note\":null}", target)
     @test typeof(value) === target
-    @test isequal(value, (host = "localhost", port = 8080, note = nothing, optional = missing))
+    @test isequal(
+        value,
+        (host = "localhost", port = 8080, note = nothing, optional = missing),
+    )
     @test parse("{}", NamedTuple{(),Tuple{}}) == NamedTuple()
-    @test_throws ParseError parse("{\"host\":\"x\",\"port\":1,\"note\":null,\"extra\":2}", target)
+    @test_throws ParseError parse(
+        "{\"host\":\"x\",\"port\":1,\"note\":null,\"extra\":2}",
+        target,
+    )
     @test_throws ParseError parse("{\"host\":\"x\",\"note\":null}", target)
-    @test_throws ParseError parse("{\"host\":\"x\",\"port\":1,\"note\":null,\"port\":2}", target)
+    @test_throws ParseError parse(
+        "{\"host\":\"x\",\"port\":1,\"note\":null,\"port\":2}",
+        target,
+    )
     @test_throws ParseError parse("{host:\"x\"}", target)
 
     service = parse(
         "{\"aliases\":[\"api\"],\"port\":443.0,\"note\":null,\"host\":\"example.test\"}",
         Service{Int},
     )
-    @test @inferred(parse(
-        "{\"aliases\":[],\"port\":80,\"note\":null,\"host\":\"inferred\"}",
-        Service{Int},
-    )) isa Service{Int}
+    @test @inferred(
+        parse(
+            "{\"aliases\":[],\"port\":80,\"note\":null,\"host\":\"inferred\"}",
+            Service{Int},
+        )
+    ) isa Service{Int}
     @test service.host == "example.test"
     @test service.port == 443
     @test service.aliases == ["api"]
@@ -160,12 +171,22 @@ end
     @test parse("{}", EmptyRecord) isa EmptyRecord
     @test_throws ParseError parse("{\"unexpected\":1}", EmptyRecord)
     @test parse("{\"value\":2}", MutableRecord).value == 2
-    @test parse("{\"value\":1,\"children\":[{\"value\":2,\"children\":[]}]}", TreeNode).children[1].value == 2
+    @test parse("{\"value\":1,\"children\":[{\"value\":2,\"children\":[]}]}", TreeNode).children[1].value ==
+          2
     @test unwrap(parse("{\"value\":{\"custom\":true}}", RawField).value) isa
           Dict{String,JSONValue}
-    @test_throws ParseError parse("{\"host\":\"x\",\"port\":1,\"aliases\":[],\"note\":null,\"extra\":2}", Service{Int})
-    @test_throws ParseError parse("{\"host\":\"x\",\"port\":1,\"aliases\":[]}", Service{Int})
-    @test_throws ParseError parse("{\"host\":\"x\",\"port\":1,\"aliases\":[],\"note\":null,\"port\":2}", Service{Int})
+    @test_throws ParseError parse(
+        "{\"host\":\"x\",\"port\":1,\"aliases\":[],\"note\":null,\"extra\":2}",
+        Service{Int},
+    )
+    @test_throws ParseError parse(
+        "{\"host\":\"x\",\"port\":1,\"aliases\":[]}",
+        Service{Int},
+    )
+    @test_throws ParseError parse(
+        "{\"host\":\"x\",\"port\":1,\"aliases\":[],\"note\":null,\"port\":2}",
+        Service{Int},
+    )
     @test_throws MethodError parse("{\"value\":1}", NoPositionalConstructor)
     @test_throws ParseError parse("{\"value\":1}", WrongConstructor)
 end

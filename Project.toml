@@ -7,4 +7,4 @@ authors = ["R. N. West and contributors"]
 julia = "1.12"
 
 [workspace]
-projects = ["test"]
+projects = ["dev", "test"]

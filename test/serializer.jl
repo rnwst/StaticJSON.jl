@@ -104,8 +104,7 @@ end
 @testset "JSON object serialization" begin
     config = SerializedConfig("example", Vec{3,Float32}(1, 2, 3), nothing, missing)
     text = json(config)
-    @test text ==
-          "{\"name\":\"example\",\"position\":[1.0,2.0,3.0],\"note\":null}"
+    @test text == "{\"name\":\"example\",\"position\":[1.0,2.0,3.0],\"note\":null}"
     @test isequal(parse(text, SerializedConfig), config)
 
     target = @NamedTuple{
