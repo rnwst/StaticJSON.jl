@@ -22,18 +22,20 @@ Pkg.add(url = "https://github.com/rnwst/StaticJSON.jl")
 
 ## Quick Start
 
-Import `parse` explicitly because it is separate from `Base.parse`:
+By default, `StaticJSON` only exports `JSONValue` and `unwrap`.
 ```julia
-using StaticJSON: JSONValue, json, parse, unwrap
+using StaticJSON
 
 Target = @NamedTuple{host::String, port::Int}
-config = parse("""{"port":8080,"host":"localhost"}""", Target)
+config = StaticJSON.parse("""{"port":8080,"host":"localhost"}""", Target)
 
 json(config)  # {"host":"localhost","port":8080}
 ```
 
 Omit the target type to retain an arbitrary document as `JSONValue`:
 ```julia
+using StaticJSON: parse
+
 document = parse("""{"host":"localhost","port":8080}""")
 object = unwrap(document)      # Dict{String,JSONValue}
 host = unwrap(object["host"])  # "localhost"

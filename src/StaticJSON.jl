@@ -4,7 +4,7 @@ statically generated schemas, allowing JuliaC to trim all unreachable code.
 """
 module StaticJSON
 
-export JSONValue, json, parse, unwrap
+export JSONValue, unwrap
 
 include("parser.jl")
 include("typed.jl")
